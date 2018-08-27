@@ -1,0 +1,24 @@
+{
+	"mouse-gesture-enable":true,
+	"mouse-gesture-trigger":"2",
+	"gesture-list": [
+		{"gesture":"1","action":"minwin"},
+		{"gesture":"9","action":"maxwin"},
+		{"gesture":"26","action":"closewin"},
+		{"gesture":"8","action":"key,Home"},
+		{"gesture":"2","action":"key,End"},
+		{"gesture":"4","action":"key,Control_L,Insert"},
+		{"gesture":"6","action":"key,Shift_L,Insert"},
+		{"gesture":"82","action":"key,Super_L,Up"},
+		{"gesture":"28","action":"key,Super_L,Down"},
+		{"gesture":"46","action":"key,Super_L,Left"},
+		{"gesture":"64","action":"key,Super_L,Right"},
+		{}
+	],
+	"hotkey-list": [
+		{"hotkey":"Mod1-Mod4-z","action":"cmd,gedit"},
+		{"hotkey":"Mod1-Mod4-x","action":"cmd,gnome-terminal"},
+		{"hotkey":"Mod1-Mod4-c","action":"cmd,gnome-calculator"},
+		{}
+	]
+}
