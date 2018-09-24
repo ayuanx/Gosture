@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	versionStr = "Gosture v1.0"
+	versionStr = "Gosture v1.1"
 	authorStr  = "By AyuanX, 22-Aug-2018"
 	cfgFile    = ".Gosture.cfg"
 )
@@ -268,6 +268,9 @@ func gosture() {
 	}
 	keybind.Initialize(x)
 	mousebind.Initialize(x)
+	mousebind.Detach(x, x.RootWin())
+	keybind.Detach(x, x.RootWin())
+	xevent.Detach(x, x.RootWin())
 	defer enable(false)
 
 	mg = new(mgT)
