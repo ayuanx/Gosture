@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	versionStr = "Gosture v1.1"
+	versionStr = "Gosture v1.2"
 	authorStr  = "By AyuanX, 22-Aug-2018"
 	cfgFile    = ".Gosture.cfg"
 )
@@ -58,7 +58,7 @@ func (m *mgT) step(ex, ey int) {
 		m.v, m.c = a, 1
 	} else if m.v != a {
 		m.c--
-	} else if m.c < 4 {
+	} else if m.c < 3 {
 		m.c++
 	} else {
 		m.c = 0
