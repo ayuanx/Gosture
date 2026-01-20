@@ -9,7 +9,9 @@ import (
 	"os/exec"
 	"os/user"
 	"path"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/xgb/xproto"
 	"github.com/BurntSushi/xgb/xtest"
@@ -19,6 +21,7 @@ import (
 	"github.com/BurntSushi/xgbutil/keybind"
 	"github.com/BurntSushi/xgbutil/mousebind"
 	"github.com/BurntSushi/xgbutil/xevent"
+	"github.com/holoplot/go-evdev"
 	shellwords "github.com/mattn/go-shellwords"
 )
 
@@ -29,13 +32,16 @@ const (
 )
 
 var (
-	x      *xgbutil.XUtil
-	mg     *mgT
-	cfg    *cfgT
-	gesMap map[string]func()
-	dirMap = [8]byte{'4', '7', '8', '9', '6', '3', '2', '1'}
-	rdy    = false
-	ena    = false
+	x                   *xgbutil.XUtil
+	mg                  *mgT
+	cfg                 *cfgT
+	gesMap              map[string]func()
+	dirMap              = [8]byte{'4', '7', '8', '9', '6', '3', '2', '1'}
+	rdy                 = false
+	ena                 = false
+	// Synchronize evdev and X11. When X11 follows a mouse drag, it cannot
+	// also check for other buttons.
+	subGestureTriggered = false
 )
 
 type mgT struct {
@@ -69,6 +75,10 @@ func (m *mgT) step(ex, ey int) {
 }
 
 func (m *mgT) end(ex, ey int) {
+	if subGestureTriggered {
+		return
+	}
+
 	if m.dir != nil {
 		if f, ok := gesMap[string(m.dir)]; ok {
 			f()
@@ -94,10 +104,11 @@ func angle(x1, y1, x2, y2 int) int {
 }
 
 type cfgT struct {
-	EnMouse bool       `json:"mouse-gesture-enable"`
-	TrMouse string     `json:"mouse-gesture-trigger"`
-	GeList  []*gesActT `json:"gesture-list"`
-	KeList  []*keyActT `json:"hotkey-list"`
+	EnMouse  bool       `json:"mouse-gesture-enable"`
+	TrMouse  string     `json:"mouse-gesture-trigger"`
+	EnRocker bool       `json:"mouse-gesture-rocker"`
+	GeList   []*gesActT `json:"gesture-list"`
+	KeList   []*keyActT `json:"hotkey-list"`
 }
 type gesActT struct {
 	Ges string `json:"gesture"`
@@ -131,7 +142,7 @@ func (cfg *cfgT) applyCFG() error {
 		if mg.mods, mg.button, err = mousebind.ParseString(x, cfg.TrMouse); err != nil {
 			// Welp, to draw text using ximg is a pain!!! And I am lazy
 			exec.Command("zenity", "--error", "--no-markup", "--no-wrap", "--title=Gosture", "--text="+fmt.Sprintf("Failed to parse mouse gesture trigger!\n\n%v", err)).Run()
-			log.Fatalf("Filed to parse mouse gesture trigger! %v", err)
+			log.Fatalf("Failed to parse mouse gesture trigger! %v", err)
 		}
 		gesMap = make(map[string]func(), len(cfg.GeList))
 		for _, ge := range cfg.GeList {
@@ -153,6 +164,7 @@ func (cfg *cfgT) applyCFG() error {
 		}
 		mousebind.Drag(x, x.RootWin(), x.RootWin(), cfg.TrMouse, true,
 			func(x *xgbutil.XUtil, rx, ry, ex, ey int) (bool, xproto.Cursor) {
+				subGestureTriggered = false
 				mg.begin(ex, ey)
 				return true, 0
 			},
@@ -161,8 +173,15 @@ func (cfg *cfgT) applyCFG() error {
 			},
 			func(x *xgbutil.XUtil, rx, ry, ex, ey int) {
 				mg.end(ex, ey)
+				mg.x, mg.y = 0, 0
 			})
 	}
+
+	if cfg.EnRocker {
+		// For reading rocker gestures / scrolling
+		go startRawMouseLoop()
+	}
+
 	// TODO: "Super + <key>" does not always work, could be Start Menu conflict?
 	for _, ke := range cfg.KeList {
 		strs := strings.Split(ke.Act, ",")
@@ -192,6 +211,102 @@ func (cfg *cfgT) applyCFG() error {
 		}
 	}
 	return nil
+}
+
+func findMousePath() string {
+	matches, _ := filepath.Glob("/dev/input/by-id/*-event-mouse*")
+	for _, match := range matches {
+		mLower := strings.ToLower(match)
+		if strings.Contains(mLower, "keyboard") || strings.Contains(mLower, "touchpad") {
+			continue
+		}
+		realPath, _ := filepath.EvalSymlinks(match)
+		return realPath
+	}
+	return ""
+}
+
+func startRawMouseLoop() {
+	for {
+		p := findMousePath()
+		if p == "" {
+			time.Sleep(5 * time.Second)
+			continue
+		}
+
+		ev, err := evdev.Open(p)
+		if err != nil {
+			time.Sleep(5 * time.Second)
+			continue
+		}
+
+		err = runMouseReadLoop(ev)
+		ev.Close()
+		subGestureTriggered = false
+
+		// Give the system a moment to settle after wake-up
+		time.Sleep(2 * time.Second)
+	}
+}
+
+func runMouseReadLoop(ev *evdev.InputDevice) error {
+	rightHeld := false
+	leftHeld := false
+
+	for {
+		event, err := ev.ReadOne()
+		// E.g. after resume from suspend
+		if err != nil {
+			return err
+		}
+
+		if event.Type == evdev.EV_KEY {
+			isDown := event.Value == 1
+			isUp := event.Value == 0
+
+			switch event.Code {
+			case 272: // BTN_LEFT
+				if isDown {
+					leftHeld = true
+					if rightHeld {
+						subGestureTriggered = true
+						prevTab()
+					}
+				} else if isUp {
+					leftHeld = false
+				}
+			case 273: // BTN_RIGHT
+				if isDown {
+					rightHeld = true
+					if leftHeld {
+						subGestureTriggered = true
+						nextTab()
+					}
+				} else {
+					rightHeld = false
+				}
+			}
+		}
+
+		if event.Type == evdev.EV_REL && event.Code == 8 { // REL_WHEEL
+			if rightHeld {
+				subGestureTriggered = true
+				if event.Value > 0 {
+					prevTab()
+				} else if event.Value < 0 {
+					nextTab()
+				}
+			}
+		}
+	}
+}
+
+func nextTab() {
+	runKey(buildKey([]string{"Control_L", "Tab"}))
+}
+
+func prevTab() {
+	runKey(buildKey([]string{"Control_L", "Shift_L", "Tab"}))
 }
 
 func buildCMD(strs []string) *exec.Cmd {

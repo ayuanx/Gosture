@@ -1,6 +1,7 @@
 {
 	"mouse-gesture-enable":true,
 	"mouse-gesture-trigger":"2",
+	"mouse-gesture-rocker":true,
 	"gesture-list": [
 		{"gesture":"1","action":"minwin"},
 		{"gesture":"9","action":"maxwin"},
